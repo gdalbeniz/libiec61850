@@ -4,6 +4,8 @@ include_directories(
 
 set(sv_9_2_LE_tfm_SRCS
    iec61850_9_2_LE_tfm.c
+   cJSON.c
+   parser.c
 )
 
 add_executable(sv_9_2_LE_tfm

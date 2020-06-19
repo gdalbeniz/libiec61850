@@ -1,0 +1,65 @@
+{
+    "default": {
+        "iface": "enp3s0",
+        "vlanId": 0,
+        "vlanPri": 0,
+        "appId": "4000",
+        "mac": "00:11:22:33:44:55",
+        "smpCntWrap": 4000,
+        "refrTm": 0,
+        "ia_mag": 5,
+        "ia_ang": 0,
+        "ia_q": 0,
+        "ib_mag": 5,
+        "ib_ang": 120,
+        "ib_q": 0,
+        "ic_mag": 5,
+        "ic_ang": 240,
+        "ic_q": 0,
+        "in_auto": true,
+        "va_mag": 220,
+        "va_ang": 0,
+        "va_q": 0,
+        "vb_mag": 220,
+        "vb_ang": 120,
+        "vb_q": 0,
+        "vc_mag": 220,
+        "vc_ang": 240,
+        "vc_q": 0,
+        "vn_auto": true
+    },
+    "streams": [
+        {
+            "svId": "TestMUnn00",
+            "datSet": "foods",
+            "confRev": 1
+        },
+        {
+            "svId": "TestMUnn01"
+        },
+        {
+            "svId": "TestMUnn02"
+        },
+        {
+            "svId": "TestMUnn03"
+        },
+        {
+            "svId": "TestMUnn04"
+        },
+        {
+            "svId": "TestMUnn05"
+        },
+        {
+            "svId": "TestMUnn06"
+        },
+        {
+            "svId": "TestMUnn07"
+        },
+        {
+            "svId": "TestMUnn08"
+        },
+        {
+            "svId": "TestMUnn09"
+        }
+    ]
+}
