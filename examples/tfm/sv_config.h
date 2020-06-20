@@ -46,4 +46,5 @@ extern SvConf *sv_conf;
 extern uint32_t sv_num;
 
 
-uint16_t sv_strtoq(const char *value);
+uint16_t sv_parseq(const char *value);
+int32_t sv_parsemac(uint8_t *mac, const char *value, const char *section);
