@@ -129,6 +129,16 @@ LIB61850_API void
 SVPublisher_destroy(SVPublisher self);
 
 /**
+ * \brief Get an IEC61850-9-2 Sampled Values buffer.
+ *
+ * \param[in] self the Sampled Values publisher instance.
+ * \param[out] self the Sampled Values buffer.
+ * \param[out] self the Sampled Values buffer length.
+ */
+LIB61850_API void
+SVPublisher_getBuffer(SVPublisher self, void **buffer, uint32_t *bufLen);
+
+/**
  * \addtogroup sv_publisher_asdu_group Values Application Service Data Unit (ASDU)
  *  @{
  */

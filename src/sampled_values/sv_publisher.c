@@ -538,6 +538,12 @@ SVPublisher_destroy(SVPublisher self)
     GLOBAL_FREEMEM(self);
 }
 
+void
+SVPublisher_getBuffer(SVPublisher self, void **buffer, uint32_t *bufLen)
+{
+    *buffer = self->buffer;
+    *bufLen = self->payloadStart + self->payloadLength;
+}
 
 void
 SVPublisher_ASDU_resetBuffer(SVPublisher_ASDU self)
