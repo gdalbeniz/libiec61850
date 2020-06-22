@@ -13,10 +13,15 @@ set(sv_config_SRCS
 add_executable(sv_9_2_LE_tfm
   ${sv_9_2_LE_tfm_SRCS}
 )
+
+target_link_libraries(sv_9_2_LE_tfm
+    iec61850
+)
+
 add_executable(sv_config
   ${sv_config_SRCS}
 )
 
-target_link_libraries(sv_9_2_LE_tfm
+target_link_libraries(sv_config
     iec61850
 )
