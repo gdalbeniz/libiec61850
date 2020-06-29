@@ -5,22 +5,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <net/if.h>
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+
 #include "ini.h"
 #include "sv_config.h"
 #include "iec61850_common.h"
 #include "sv_publisher.h"
 #include "hal_thread.h"
 
-#include <sys/types.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <linux/if_packet.h>
-
-
 
 #define MATCH(a,b) (!strcmp(a?a:"", b?b:""))
 #define SV_ALLOC_SZ 50
-#define SV_MAX 200
+#define SV_MAX 256
 
 #define DEBUG
 #ifdef DEBUG
@@ -103,8 +107,7 @@ static int handler(void* user, const char* section, const char* key, const char*
 		conf->confRev = (uint32_t) strtol(value, NULL, 0);
 	} else if (MATCH(key, "smpCntWrap")) {
 		conf->smpCntWrap = (uint32_t) strtol(value, NULL, 0);
-	}/* TODO else if (MATCH(key, "refrTm")) {
-	}*/ else if (MATCH(key, "ia_mag")) {
+	} else if (MATCH(key, "ia_mag")) {
 		conf->ia_mag = strtod(value, NULL);
 	} else if (MATCH(key, "ia_ang")) {
 		conf->ia_ang = strtod(value, NULL);
@@ -252,15 +255,28 @@ uint16_t reverse16(uint16_t x)
 
 struct sSvSocket {
 	int32_t socket;
-	struct sockaddr_ll sockaddress[SV_MAX];
-	struct mmsghdr msgvec[SAMPLEWRAP][SV_MAX];
-	uint32_t msgvlen;
-	struct iovec iov[SAMPLEWRAP][SV_MAX];
+	struct {
+		struct sockaddr_ll address[SV_MAX];
+		struct mmsghdr msgvec[SV_MAX];
+		struct iovec iov[SV_MAX];
+	} samp[SAMPLEWRAP];
 };
-struct sSvSocket sv_socket = {0};
+struct sSvSocket sv_socket;
+
+int getInterfaceIndex(int sock, const char* deviceName)
+{
+    struct ifreq ifr;
+    strncpy(ifr.ifr_name, deviceName, IFNAMSIZ);
+    if (ioctl(sock, SIOCGIFINDEX, &ifr) == -1) {
+        if (DEBUG_SOCKET)
+            printf("ETHERNET_LINUX: Failed to get interface index");
+        return -1;
+    }
+    return ifr.ifr_ifindex;
+}
 
 
-int32_t sv_prepare(uint8_t *samples, SvConf *conf, uint32_t sv, uint32_t refrTm)
+int32_t sv_prepare(uint8_t *samples, SvConf *conf, uint32_t sv)
 {
 	CommParameters params;
 	params.vlanPriority = conf[sv].vlanPrio;
@@ -301,12 +317,8 @@ int32_t sv_prepare(uint8_t *samples, SvConf *conf, uint32_t sv, uint32_t refrTm)
 	//SVPublisher_ASDU_setSmpCntWrap(asdu, SAMPLEWRAP);//?
 	SVPublisher_setupComplete(svp);
 
-	uint8_t *buffer;
-	uint32_t bufLen;
-
 	for (uint16_t smp = 0; smp < SAMPLEWRAP; smp++) {
 		SVPublisher_ASDU_setSmpCnt(asdu, smp);
-		SVPublisher_ASDU_setRefrTm(asdu, refrTm + smp/4);
 		uint8_t point = smp % 80;
 
 		// update currents
@@ -346,26 +358,75 @@ int32_t sv_prepare(uint8_t *samples, SvConf *conf, uint32_t sv, uint32_t refrTm)
 		SVPublisher_ASDU_setQuality(asdu, vol4q, reverse16(conf[sv].vn_q));
 
 		// copy packet
+		uint8_t *buffer;
+		uint32_t bufLen;
 		SVPublisher_getBuffer(svp, &buffer, &bufLen);
 		if (bufLen > PACKETSIZE) {
 			printf("error: packet size (%d) too big\n", bufLen);
 			return -1;
 		}
 		uint8_t *sample_ptr = samples + smp * sv_num * PACKETSIZE + sv * PACKETSIZE;// uint8_t sv_samples[SAMPLEWRAP][sv_num][PACKETSIZE]
-		memcpy(sample_ptr, buffer, bufLen); 
+		memcpy(sample_ptr, buffer, bufLen);
+
+		// prepare sendmmsg info
+		sv_socket.samp[smp].address[sv].sll_family = AF_PACKET;
+		sv_socket.samp[smp].address[sv].sll_protocol = htons(0x88ba);
+		sv_socket.samp[smp].address[sv].sll_ifindex = getInterfaceIndex(sv_socket.socket, conf[sv].iface);
+		sv_socket.samp[smp].address[sv].sll_halen = ETH_ALEN;
+		sv_socket.samp[smp].address[sv].sll_addr[0] = conf[sv].mac[0];
+		sv_socket.samp[smp].address[sv].sll_addr[1] = conf[sv].mac[1];
+		sv_socket.samp[smp].address[sv].sll_addr[2] = conf[sv].mac[2];
+		sv_socket.samp[smp].address[sv].sll_addr[3] = conf[sv].mac[3];
+		sv_socket.samp[smp].address[sv].sll_addr[4] = conf[sv].mac[4];
+		sv_socket.samp[smp].address[sv].sll_addr[5] = conf[sv].mac[5];
+		sv_socket.samp[smp].address[sv].sll_hatype = 0; // not needed
+		sv_socket.samp[smp].address[sv].sll_pkttype = 0; // not needed
+		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_name = &sv_socket.samp[smp].address[sv];
+		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_namelen = sizeof(struct sockaddr_ll);
+		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_iov = &sv_socket.samp[smp].iov[sv];
+		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_iovlen = 1;
+		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_control = NULL;
+		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_controllen = 0;
+		sv_socket.samp[smp].iov[sv].iov_base = sample_ptr;
+		sv_socket.samp[smp].iov[sv].iov_len = bufLen;
 	}
 
 	SVPublisher_destroy(svp);
-	return bufLen;
+	return 0;
 }
 
+#define NEXT_SV 250000
+void clock_addinterval(struct timespec *ts, unsigned long ns)
+{
+	ts->tv_nsec += ns;
+	while (ts->tv_nsec >= 1000000000) {
+		ts->tv_nsec -= 1000000000;
+		ts->tv_sec += 1;
+	}
+}
+uint64_t clock_gettime_ms()
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ((uint64_t) ts.tv_sec) * 1000 + (ts.tv_nsec / 1000000);
+}
+int32_t clock_getdiff_us(struct timespec *tsref)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ((tsref->tv_sec - ts.tv_sec)) * 1000000 + ((tsref->tv_nsec - ts.tv_nsec) / 1000);
+}
 
 
 int main(int argc, char* argv[])
 {
+	uint32_t sv_lim = 0;
 	if (argc <= 1) {
-		printf("Usage: ini_dump filename.ini\n");
+		printf("Usage: %s filename.ini sv_lim\n", argv[0]);
 		return 1;
+	}
+	if (argc > 2) {
+		sv_lim = atoi(argv[2]);
 	}
 
 	int error = ini_parse(argv[1], handler, NULL);
@@ -384,33 +445,42 @@ int main(int argc, char* argv[])
 		printSvConf(&sv_conf[i]);
 	}
 	
-	debug("==========================\n"
-		"Succesfully parsed %d SV streams \n", sv_num);
+
+	debug("==========================\n");
+	if (sv_num > SV_MAX) {
+		printf("error: too many sv (%d > %d)\n", sv_num, SV_MAX);
+		return -1;
+	} else if ((sv_num > sv_lim) && (sv_lim > 0)) {
+		debug("Succesfully parsed %d SV streams. Limited to %d \n", sv_num, sv_lim);
+		sv_num = sv_lim;
+	} else {
+		debug("Succesfully parsed %d SV streams \n", sv_num);
+	}
 	
 	uint32_t sv_sample_sz = PACKETSIZE * SAMPLEWRAP * sv_num;
 	uint8_t *sv_samples = (uint8_t *) malloc(sv_sample_sz); // uint8_t sv_samples[SAMPLEWRAP][sv_num][PACKETSIZE]
-	if (sv_samples == NULL) {
-		debug("wtf\n");
-	}
 	memset(sv_samples, 0, sv_sample_sz);
 
 	debug("==========================\n"
 		"creating packets (%d bytes) \n", sv_sample_sz);
+	debug("==========================\n"
+		"estimated output: %dK pps) \n", sv_num * 4);
 
-	uint8_t sv_len = 0;
-	uint32_t refrTm = Hal_getTimeInMs();
+	sv_socket.socket = socket(AF_PACKET, SOCK_RAW, 0);
+	// int32_t sock_qdisc_bypass = 1;
+	// errno = 0;
+	// int32_t sock_qdisc_ret = setsockopt(sv_socket.socket, SOL_PACKET, PACKET_QDISC_BYPASS, &sock_qdisc_bypass, sizeof(sock_qdisc_bypass));
+	// debug("setsockopt PACKET_QDISC_BYPASS returned %d, errno %d\n", sock_qdisc_ret, errno);
+
+
 	for (int i = 0; i < sv_num; i++) {
-		int ret = sv_prepare(sv_samples, sv_conf, i, refrTm);
+		int ret = sv_prepare(sv_samples, sv_conf, i);
 		if (ret < 0) {
 			printf("error: sv_prepare failed (%d)\n", ret);
 			return -1;
-		} else {
-			debug("stream %d, len is %d, do something\n", i, ret);
-			if (ret > sv_len) {
-				sv_len = ret;
-			}
 		}
 	}
+
 
 #if 0
 	for (int smp = 0; smp < SAMPLEWRAP; smp++) {
@@ -434,8 +504,62 @@ int main(int argc, char* argv[])
 		}
 	}
 #endif
+
+	debug("start sending\n");
+	int32_t sleeptimes[600] = {0};
+	int32_t sleepindex = 0;
+
+	// start sending
+	struct timespec tsnext;
+	clock_gettime(CLOCK_MONOTONIC, &tsnext);
+
+	bool running = true;
+	while (running) {
+		for (uint32_t smp = 0; smp < SAMPLEWRAP; smp++) {
+			// sleep until next 250us
+			clock_addinterval(&tsnext, NEXT_SV);
+			if (smp % 400 == 0) {
+				sleeptimes[sleepindex++] = clock_getdiff_us(&tsnext);
+				if (sleepindex >= sizeof(sleeptimes)/sizeof(int32_t)) {
+					for (int i = 0; i < sizeof(sleeptimes)/sizeof(int32_t); i++) {
+						debug("diff time [%d] = %d us\n", i, sleeptimes[i]);
+					}
+					return 0;
+				}
+			}
+			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &tsnext, NULL);
+
+			// if (smp % 4 == 0) {
+			// 	// sync every 1ms, 4 samples
+			// 	clock_addinterval(&tsnext, 4*NEXT_SV);
+			// 	int32_t diff = clock_getdiff_us(&tsnext);
+			// 	if (diff > 10) {
+			// 		usleep(diff - 10);
+			// 	}
+			// 	if (smp % 400 == 0) {
+			// 		sleeptimes[sleepindex++] = diff;
+			// 		if (sleepindex >= sizeof(sleeptimes)/sizeof(int32_t)) {
+			// 			for (int i = 0; i < sizeof(sleeptimes)/sizeof(int32_t); i++) {
+			// 				debug("diff time [%d] = %d us\n", i, sleeptimes[i]);
+			// 			}
+			// 			return 0;
+			// 		}
+			// 	}
+			// }
+			// send all sv for sample
+			errno = 0;
+			int res = sendmmsg(sv_socket.socket, sv_socket.samp[smp].msgvec, sv_num, 0);
+			if (res == -1) {
+				printf("sendmsg returned -1, errno = %d\n", errno);
+				return -1;
+			} else {
+				//debug("smp %d, sendmsg returned %d\n", smp, res);
+			}
+		}
+	}
+
+
+
 	
-
-
 	return 0;
 }

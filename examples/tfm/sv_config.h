@@ -16,7 +16,6 @@ struct sSvConf {
     char datSet[MAXLEN];
     uint32_t confRev;
     uint32_t smpCntWrap;//?
-    char refrTm[MAXLEN];//?
     double ia_ang;
     double ia_mag;
     uint16_t ia_q;

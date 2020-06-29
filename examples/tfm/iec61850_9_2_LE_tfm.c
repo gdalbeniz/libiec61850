@@ -22,6 +22,8 @@
  */
 
 #define _GNU_SOURCE
+#include <sys/socket.h>
+#include <linux/if_packet.h>
 
 //#include "iec61850_server.h"
 #include "sv_publisher.h"
@@ -238,11 +240,13 @@ int main(int argc, char** argv)
 	uint32_t num_sv = NUM_SV;
 	char* iface = IFACE;
 
+
 	if (argc > 1) {
-		num_sv = atoi(argv[1]);
+		iface = argv[1];
 	}
+
 	if (argc > 2) {
-		iface = argv[2];
+		num_sv = atoi(argv[2]);
 	}
 		
 
