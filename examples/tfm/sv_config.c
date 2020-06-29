@@ -464,13 +464,28 @@ int main(int argc, char* argv[])
 	debug("==========================\n"
 		"creating packets (%d bytes) \n", sv_sample_sz);
 	debug("==========================\n"
-		"estimated output: %dK pps) \n", sv_num * 4);
+		"estimated output: %d Kpps\n", sv_num * 4);
+
+
+// socket initialization
 
 	sv_socket.socket = socket(AF_PACKET, SOCK_RAW, 0);
 	// int32_t sock_qdisc_bypass = 1;
 	// errno = 0;
 	// int32_t sock_qdisc_ret = setsockopt(sv_socket.socket, SOL_PACKET, PACKET_QDISC_BYPASS, &sock_qdisc_bypass, sizeof(sock_qdisc_bypass));
 	// debug("setsockopt PACKET_QDISC_BYPASS returned %d, errno %d\n", sock_qdisc_ret, errno);
+/* set sockaddr info */
+	struct sockaddr_ll my_addr;
+	memset(&my_addr, 0, sizeof(struct sockaddr_ll));
+	my_addr.sll_family = AF_PACKET;
+	my_addr.sll_protocol = ETH_P_ALL;
+	my_addr.sll_ifindex = getInterfaceIndex(sv_socket.socket, "enp3s0");
+	/* bind port */
+	if (bind(sv_socket.socket, (struct sockaddr *)&my_addr, sizeof(struct sockaddr_ll)) == -1) {
+		perror("bind");
+		return EXIT_FAILURE;
+	}
+
 
 
 	for (int i = 0; i < sv_num; i++) {
