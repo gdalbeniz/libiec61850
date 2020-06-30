@@ -14,6 +14,7 @@
 #include <net/if.h>
 #include <linux/if_packet.h>
 #include <linux/if_ether.h>
+#include <sys/mman.h>
 
 #include "ini.h"
 #include "sv_config.h"
@@ -276,7 +277,7 @@ int getInterfaceIndex(int sock, const char* deviceName)
 }
 
 
-int32_t sv_prepare(uint8_t *samples, SvConf *conf, uint32_t sv)
+int32_t sv_prepare(void *samples, SvConf *conf, uint32_t sv, uint32_t smpwrap)
 {
 	CommParameters params;
 	params.vlanPriority = conf[sv].vlanPrio;
@@ -317,7 +318,7 @@ int32_t sv_prepare(uint8_t *samples, SvConf *conf, uint32_t sv)
 	//SVPublisher_ASDU_setSmpCntWrap(asdu, SAMPLEWRAP);//?
 	SVPublisher_setupComplete(svp);
 
-	for (uint16_t smp = 0; smp < SAMPLEWRAP; smp++) {
+	for (uint16_t smp = 0; smp < smpwrap; smp++) {
 		SVPublisher_ASDU_setSmpCnt(asdu, smp);
 		uint8_t point = smp % 80;
 
@@ -365,30 +366,36 @@ int32_t sv_prepare(uint8_t *samples, SvConf *conf, uint32_t sv)
 			printf("error: packet size (%d) too big\n", bufLen);
 			return -1;
 		}
-		uint8_t *sample_ptr = samples + smp * sv_num * PACKETSIZE + sv * PACKETSIZE;// uint8_t sv_samples[SAMPLEWRAP][sv_num][PACKETSIZE]
+
+		uint32_t data_offset = TPACKET2_HDRLEN - sizeof(struct sockaddr_ll);
+		struct tpacket2_hdr *packet = (struct tpacket2_hdr *) (samples + smp * sv_num * PACKETSIZE + sv * PACKETSIZE);
+		void *sample_ptr = (void *)packet + data_offset;
 		memcpy(sample_ptr, buffer, bufLen);
 
+		packet->tp_len = bufLen;
+		packet->tp_snaplen = bufLen;
+
 		// prepare sendmmsg info
-		sv_socket.samp[smp].address[sv].sll_family = AF_PACKET;
-		sv_socket.samp[smp].address[sv].sll_protocol = htons(0x88ba);
-		sv_socket.samp[smp].address[sv].sll_ifindex = getInterfaceIndex(sv_socket.socket, conf[sv].iface);
-		sv_socket.samp[smp].address[sv].sll_halen = ETH_ALEN;
-		sv_socket.samp[smp].address[sv].sll_addr[0] = conf[sv].mac[0];
-		sv_socket.samp[smp].address[sv].sll_addr[1] = conf[sv].mac[1];
-		sv_socket.samp[smp].address[sv].sll_addr[2] = conf[sv].mac[2];
-		sv_socket.samp[smp].address[sv].sll_addr[3] = conf[sv].mac[3];
-		sv_socket.samp[smp].address[sv].sll_addr[4] = conf[sv].mac[4];
-		sv_socket.samp[smp].address[sv].sll_addr[5] = conf[sv].mac[5];
-		sv_socket.samp[smp].address[sv].sll_hatype = 0; // not needed
-		sv_socket.samp[smp].address[sv].sll_pkttype = 0; // not needed
-		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_name = &sv_socket.samp[smp].address[sv];
-		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_namelen = sizeof(struct sockaddr_ll);
-		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_iov = &sv_socket.samp[smp].iov[sv];
-		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_iovlen = 1;
-		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_control = NULL;
-		sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_controllen = 0;
-		sv_socket.samp[smp].iov[sv].iov_base = sample_ptr;
-		sv_socket.samp[smp].iov[sv].iov_len = bufLen;
+		// sv_socket.samp[smp].address[sv].sll_family = AF_PACKET;
+		// sv_socket.samp[smp].address[sv].sll_protocol = htons(0x88ba);
+		// sv_socket.samp[smp].address[sv].sll_ifindex = getInterfaceIndex(sv_socket.socket, conf[sv].iface);
+		// sv_socket.samp[smp].address[sv].sll_halen = ETH_ALEN;
+		// sv_socket.samp[smp].address[sv].sll_addr[0] = conf[sv].mac[0];
+		// sv_socket.samp[smp].address[sv].sll_addr[1] = conf[sv].mac[1];
+		// sv_socket.samp[smp].address[sv].sll_addr[2] = conf[sv].mac[2];
+		// sv_socket.samp[smp].address[sv].sll_addr[3] = conf[sv].mac[3];
+		// sv_socket.samp[smp].address[sv].sll_addr[4] = conf[sv].mac[4];
+		// sv_socket.samp[smp].address[sv].sll_addr[5] = conf[sv].mac[5];
+		// sv_socket.samp[smp].address[sv].sll_hatype = 0; // not needed
+		// sv_socket.samp[smp].address[sv].sll_pkttype = 0; // not needed
+		// sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_name = &sv_socket.samp[smp].address[sv];
+		// sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_namelen = sizeof(struct sockaddr_ll);
+		// sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_iov = &sv_socket.samp[smp].iov[sv];
+		// sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_iovlen = 1;
+		// sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_control = NULL;
+		// sv_socket.samp[smp].msgvec[sv].msg_hdr.msg_controllen = 0;
+		// sv_socket.samp[smp].iov[sv].iov_base = sample_ptr;
+		// sv_socket.samp[smp].iov[sv].iov_len = bufLen;
 	}
 
 	SVPublisher_destroy(svp);
@@ -445,7 +452,6 @@ int main(int argc, char* argv[])
 		printSvConf(&sv_conf[i]);
 	}
 	
-
 	debug("==========================\n");
 	if (sv_num > SV_MAX) {
 		printf("error: too many sv (%d > %d)\n", sv_num, SV_MAX);
@@ -456,24 +462,13 @@ int main(int argc, char* argv[])
 	} else {
 		debug("Succesfully parsed %d SV streams \n", sv_num);
 	}
-	
-	uint32_t sv_sample_sz = PACKETSIZE * SAMPLEWRAP * sv_num;
-	uint8_t *sv_samples = (uint8_t *) malloc(sv_sample_sz); // uint8_t sv_samples[SAMPLEWRAP][sv_num][PACKETSIZE]
-	memset(sv_samples, 0, sv_sample_sz);
 
-	debug("==========================\n"
-		"creating packets (%d bytes) \n", sv_sample_sz);
-	debug("==========================\n"
-		"estimated output: %d Kpps\n", sv_num * 4);
 
 
 // socket initialization
 
 	sv_socket.socket = socket(AF_PACKET, SOCK_RAW, 0);
-	// int32_t sock_qdisc_bypass = 1;
-	// errno = 0;
-	// int32_t sock_qdisc_ret = setsockopt(sv_socket.socket, SOL_PACKET, PACKET_QDISC_BYPASS, &sock_qdisc_bypass, sizeof(sock_qdisc_bypass));
-	// debug("setsockopt PACKET_QDISC_BYPASS returned %d, errno %d\n", sock_qdisc_ret, errno);
+	
 /* set sockaddr info */
 	struct sockaddr_ll my_addr;
 	memset(&my_addr, 0, sizeof(struct sockaddr_ll));
@@ -481,15 +476,95 @@ int main(int argc, char* argv[])
 	my_addr.sll_protocol = ETH_P_ALL;
 	my_addr.sll_ifindex = getInterfaceIndex(sv_socket.socket, "enp3s0");
 	/* bind port */
-	if (bind(sv_socket.socket, (struct sockaddr *)&my_addr, sizeof(struct sockaddr_ll)) == -1) {
+	if (bind(sv_socket.socket, (struct sockaddr *)&my_addr, sizeof(struct sockaddr_ll)) < 0) {
 		perror("bind");
 		return EXIT_FAILURE;
 	}
+	/* set packet loss option */
+	int32_t mode_loss = 0;
+	if (setsockopt(sv_socket.socket, SOL_PACKET, PACKET_LOSS,
+					(char *)&mode_loss, sizeof(mode_loss)) < 0)
+    {
+		perror("setsockopt: PACKET_LOSS");
+		return EXIT_FAILURE;
+    }
+	/* set v3 */
+	int32_t tpacket_version = TPACKET_V2;
+ 	if (setsockopt(sv_socket.socket, SOL_PACKET, PACKET_VERSION,
+	 				&tpacket_version, sizeof(tpacket_version)) < 0)
+	{
+		perror("setsockopt: PACKET_VERSION");
+		return EXIT_FAILURE;
+	}
+	/* disable qdisc */
+	int32_t sock_qdisc_bypass = 1;
+	if (setsockopt(sv_socket.socket, SOL_PACKET, PACKET_QDISC_BYPASS,
+					&sock_qdisc_bypass, sizeof(sock_qdisc_bypass)) < 0)
+	{
+		perror("setsockopt: PACKET_VERSION");
+		return EXIT_FAILURE;
+	}
+
+ 
+#define BLOCKSIZE_ALIGNMENT	4096
+#define BLOCKSIZE_ALIGN(x)	(((x)+BLOCKSIZE_ALIGNMENT-1)&~(BLOCKSIZE_ALIGNMENT-1))
+
+	/* send TX ring request */
+	struct tpacket_req s_packet_req;
+	s_packet_req.tp_block_size = BLOCKSIZE_ALIGN(PACKETSIZE * sv_num);
+	s_packet_req.tp_block_nr = 80;
+	s_packet_req.tp_frame_size = PACKETSIZE;
+	s_packet_req.tp_frame_nr = s_packet_req.tp_block_size * s_packet_req.tp_block_nr / s_packet_req.tp_frame_size;
+	// s_packet_req.tp_block_size = 4194304; // 4MB contiguous block size
+	// s_packet_req.tp_block_nr = 64; // 256MB total size
+	// s_packet_req.tp_frame_size = PACKETSIZE; // 256B per frame (header+packet)
+	// s_packet_req.tp_frame_nr = 1048576; // 16K frames per block, 1M frames
+	printf("tp_block_size=%d, tp_block_nr=%d, tp_frame_size=%d, tp_frame_nr=%d\n",
+			s_packet_req.tp_block_size, s_packet_req.tp_block_nr,
+			s_packet_req.tp_frame_size, s_packet_req.tp_frame_nr);
+
+	if (setsockopt(sv_socket.socket, SOL_PACKET, PACKET_TX_RING,
+					(char *)&s_packet_req, sizeof(s_packet_req)) < 0)
+	{
+		perror("setsockopt: PACKET_TX_RING");
+		return EXIT_FAILURE;
+	}
+
+	/* calculate memory to mmap in the kernel */
+	uint32_t mmap_size = s_packet_req.tp_block_size * s_packet_req.tp_block_nr;
+
+	/* get data offset */
+	uint32_t data_offset = TPACKET2_HDRLEN - sizeof(struct sockaddr_ll);
+	printf("data offset = %d B, sizeof tpacket2_hdr = %d B\n", data_offset, sizeof(struct tpacket2_hdr));
+
+	/* mmap Tx ring buffers memory */
+	volatile void* ps_header_start;
+	ps_header_start = mmap(0, mmap_size, PROT_READ|PROT_WRITE, MAP_SHARED, sv_socket.socket, 0);
+	if (ps_header_start == (void*)-1) {
+		perror("mmap");
+		return EXIT_FAILURE;
+	}
+	memset(ps_header_start, 0, mmap_size);
+
+
+
+
+
+// prepare SV packets
+	
+	// uint32_t sv_sample_sz = PACKETSIZE * SAMPLEWRAP * sv_num;
+	// uint8_t *sv_samples = (uint8_t *) malloc(sv_sample_sz); // uint8_t sv_samples[SAMPLEWRAP][sv_num][PACKETSIZE]
+	// memset(sv_samples, 0, sv_sample_sz);
+
+	debug("==========================\n"
+		"creating packets (%d bytes) \n", mmap_size);
+	debug("==========================\n"
+		"estimated output: %d Kpps\n", sv_num * 4);
 
 
 
 	for (int i = 0; i < sv_num; i++) {
-		int ret = sv_prepare(sv_samples, sv_conf, i);
+		int ret = sv_prepare(ps_header_start, sv_conf, i, 80);
 		if (ret < 0) {
 			printf("error: sv_prepare failed (%d)\n", ret);
 			return -1;
@@ -530,18 +605,18 @@ int main(int argc, char* argv[])
 
 	bool running = true;
 	while (running) {
-		for (uint32_t smp = 0; smp < SAMPLEWRAP; smp++) {
+		for (uint32_t smp = 0; smp < 80; smp++) {
 			// sleep until next 250us
-			clock_addinterval(&tsnext, NEXT_SV);
-			if (smp % 400 == 0) {
-				sleeptimes[sleepindex++] = clock_getdiff_us(&tsnext);
-				if (sleepindex >= sizeof(sleeptimes)/sizeof(int32_t)) {
-					for (int i = 0; i < sizeof(sleeptimes)/sizeof(int32_t); i++) {
-						debug("diff time [%d] = %d us\n", i, sleeptimes[i]);
-					}
-					return 0;
-				}
-			}
+			clock_addinterval(&tsnext, 2*NEXT_SV);
+			// if (smp % 400 == 0) {
+			// 	sleeptimes[sleepindex++] = clock_getdiff_us(&tsnext);
+			// 	if (sleepindex >= sizeof(sleeptimes)/sizeof(int32_t)) {
+			// 		for (int i = 0; i < sizeof(sleeptimes)/sizeof(int32_t); i++) {
+			// 			debug("diff time [%d] = %d us\n", i, sleeptimes[i]);
+			// 		}
+			// 		return 0;
+			// 	}
+			// }
 			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &tsnext, NULL);
 
 			// if (smp % 4 == 0) {
@@ -561,16 +636,36 @@ int main(int argc, char* argv[])
 			// 		}
 			// 	}
 			// }
+
+			// reset send status
+			volatile void *sample_batch = ps_header_start + smp * sv_num * PACKETSIZE;
+			for (uint32_t sv = 0; sv < sv_num; sv++) {
+				volatile struct tpacket2_hdr *packet = (struct tpacket2_hdr *) sample_batch;
+				if (packet->tp_status != TP_STATUS_AVAILABLE) {
+					printf("wtf, smp %d, sv %d, status %d\n", smp, sv, packet->tp_status);
+				}
+				packet->tp_status = TP_STATUS_SEND_REQUEST;
+
+				sample_batch += PACKETSIZE;
+				//printf("smp %d sv %d\n", smp, sv);
+			}
+		loop:
 			// send all sv for sample
 			errno = 0;
-			int res = sendmmsg(sv_socket.socket, sv_socket.samp[smp].msgvec, sv_num, 0);
+			int res = sendto(sv_socket.socket, NULL, 0, MSG_DONTWAIT, NULL, 0);
 			if (res == -1) {
-				printf("sendmsg returned -1, errno = %d\n", errno);
-				return -1;
+				// if (errno == EAGAIN) {
+				// 	usleep(10);
+				// 	printf("sendto returned -1, errno = %d\n", errno);
+				// 	goto loop;
+				// }
+				printf("smp %d: sendto returned -1, errno = %d\n", smp, errno);
+				//return -1;
 			} else {
-				//debug("smp %d, sendmsg returned %d\n", smp, res);
+				//debug("smp %d, sendto returned %d\n", smp, res);
 			}
 		}
+		debug("one cicle loop\n");
 	}
 
 
