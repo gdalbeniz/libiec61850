@@ -464,7 +464,8 @@ int main(int argc, char* argv[])
 	debug("==========================\n"
 		"creating packets (%d bytes) \n", sv_sample_sz);
 	debug("==========================\n"
-		"estimated output: %dK pps) \n", sv_num * 4);
+		"estimated output: %d Kpps \n", sv_num * 4);
+	debug("==========================\n");
 
 	sv_socket.socket = socket(AF_PACKET, SOCK_RAW, 0);
 	// int32_t sock_qdisc_bypass = 1;
