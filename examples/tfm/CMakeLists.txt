@@ -23,6 +23,6 @@ add_executable(sv_config
 target_link_libraries(sv_config
     iec61850
 )
-install (TARGETS sv_config
-	RUNTIME DESTINATION ${BINDIR} COMPONENT Applications
-)
+
+install (TARGETS sv_config RUNTIME DESTINATION ${BINDIR} COMPONENT Applications)
+install (FILES test.ini DESTINATION etc COMPONENT Applications)
